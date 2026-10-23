@@ -1,0 +1,8 @@
+discord.py[voice]==2.7.1
+wavelink==3.5.2
+aiohttp==3.11.18
+aiosqlite==0.21.0
+python-dotenv==1.1.0
+tinytag==2.3.2
+pytest==8.4.1
+pytest-asyncio==1.0.0

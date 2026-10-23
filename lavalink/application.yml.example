@@ -1,0 +1,30 @@
+server:
+  address: 127.0.0.1
+  port: 2333
+
+lavalink:
+  server:
+    password: "CHANGE_ME_TO_A_LONG_RANDOM_PASSWORD"
+    sources:
+      youtube: false
+      bandcamp: false
+      soundcloud: false
+      twitch: false
+      vimeo: false
+      nico: false
+      http: false
+      local: false
+plugins:
+  soundy:
+    enabled: false
+  youtube:
+    enabled: true
+    allowSearch: true
+    allowDirectVideoIds: true
+    allowDirectPlaylistIds: true
+    clients:
+      - MUSIC
+      - ANDROID_VR
+      - WEB
+      - WEBEMBEDDED
+      - IOS
