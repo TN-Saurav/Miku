@@ -31,10 +31,12 @@ Invite the bot with the `bot` and `applications.commands` scopes and the permiss
 From the repository root, start both with one command:
 
 ```powershell
-.\.venv\Scripts\python.exe .\main.py
+python .\main.py
 ```
 
-The launcher starts the local Lavalink JAR when `LAVALINK_URI` points to localhost and the port is not already open, waits for its port, then runs the existing `python -m miku` entry point. It leaves an already-running Lavalink process alone. If `LAVALINK_URI` points to a remote host, it starts Miku without launching a local server. Press Ctrl+C to stop Miku; a local Lavalink process started by the launcher is stopped with it.
+`main.py` re-launches itself with `.venv`'s Python when needed, starts the local Lavalink JAR when `LAVALINK_URI` points to localhost and its port is closed, waits for the port, then delegates to the existing `python -m miku` entry point. It reuses an open local port and stops only a Lavalink process it started. A remote `LAVALINK_URI` starts Miku without launching a local server. Press Ctrl+C to stop Miku and any Lavalink process started by this launcher. PowerShell does not reliably execute `.py` files as `.\main.py`: `.PY` is absent from `PATHEXT` in the tested shell, and a harmless script did not run when invoked that way. Use `python .\main.py` or the direct `.venv` command below.
+
+For direct execution without relying on a global Python command, use `.\.venv\Scripts\python.exe .\main.py`. To start by double-clicking in File Explorer, use `start.bat`; it calls the same launcher with the project `.venv` and keeps the terminal open after errors.
 
 For manual two-window startup, start Lavalink in one PowerShell window:
 
