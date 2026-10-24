@@ -83,7 +83,8 @@ class Settings:
     def validate(self) -> None:
         if not self.discord_token:
             raise ValueError(
-                "DISCORD_BOT_TOKEN is required. Set it in the project's .env file before starting Miku."
+                "DISCORD_BOT_TOKEN is required. Set it in the process environment or local .env file "
+                "before starting Miku."
             )
         if self.guild_id is not None and self.guild_id <= 0:
             raise ValueError("DISCORD_GUILD_ID must be a positive integer when set.")

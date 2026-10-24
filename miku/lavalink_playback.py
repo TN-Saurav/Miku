@@ -21,7 +21,8 @@ log = logging.getLogger(__name__)
 
 YOUTUBE_SETUP_FEEDBACK = (
     "YouTube audio needs a reachable Lavalink v4 server with the maintained YouTube source plugin. "
-    "Configure `LAVALINK_URI` and `LAVALINK_PASSWORD` in `.env`, then restart Miku."
+    "Set `LAVALINK_URI` and `LAVALINK_PASSWORD` as environment variables or in the local `.env` file, "
+    "then restart Miku."
 )
 
 _SECRET_DETAIL_PATTERN = re.compile(

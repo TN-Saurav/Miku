@@ -270,7 +270,7 @@ async def test_missing_youtube_key_has_actionable_message_in_prefix_and_slash_se
     ctx = SimpleNamespace(guild=guild, author=SimpleNamespace(id=20), channel=channel)
     expected = (
         "⚙️ YouTube search isn't configured yet. The bot owner needs to set "
-        "`YOUTUBE_API_KEY` in the `.env` file."
+        "`YOUTUBE_API_KEY` as an environment variable or in the local `.env` file."
     )
 
     await bot.get_command("search").callback(ctx, query="Kalyani")

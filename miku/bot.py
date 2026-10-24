@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 
 YOUTUBE_CONFIG_FEEDBACK = (
     "⚙️ YouTube search isn't configured yet. The bot owner needs to set "
-    "`YOUTUBE_API_KEY` in the `.env` file."
+    "`YOUTUBE_API_KEY` as an environment variable or in the local `.env` file."
 )
 NO_RESULTS_FEEDBACK = "🔎 No matching songs were found. Try another song title or artist."
 UNSUPPORTED_URL_FEEDBACK = (
@@ -1196,7 +1196,9 @@ def main() -> int:
         log.info("Connecting to Discord")
         client.run(settings.discord_token, log_handler=None)
     except discord.LoginFailure:
-        log.error("Discord rejected DISCORD_BOT_TOKEN. Check that .env contains a valid bot token.")
+        log.error(
+            "Discord rejected DISCORD_BOT_TOKEN. Check the process environment or local .env file."
+        )
         return 2
     except discord.PrivilegedIntentsRequired:
         log.error(

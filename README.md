@@ -95,11 +95,9 @@ Tests mock Discord, Lavalink, and YouTube calls; they do not verify live Discord
 
 ## Deployment
 
-Install Python 3.10 or newer and the production package with `python -m pip install .`. Configure the token and Lavalink connection through the host's secret/environment-variable settings, then use `python -m miku` as the process command. Do not bake `.env`, `lavalink/application.yml`, JARs, or speech models into a public image. The Lavalink service must be reachable from the bot host. Use `requirements.txt` for tools that require a requirements file; it installs the local package and its runtime dependencies without test tools.
+Install Python 3.10 or newer from the project root with `python -m pip install .`, or install the pinned runtime packages with `python -m pip install -r requirements.txt`. Keep the repository root as the process working directory and start Miku with `python -m miku`; after installing the package, the standard `miku` console command is also available. Configure secrets through the platform's environment-variable settings. Do not bake `.env`, `lavalink/application.yml`, JARs, or speech models into a public image. The Lavalink service must be reachable from the bot host.
 
-### ACLClouds with the repository in a subdirectory
-
-ACLClouds can run pip from `/home/container/` while the checkout is under `/home/container/Miku-main/`. Set its **Requirements File** to `Miku-main/requirements.txt`; the file lists pinned packages directly and does not depend on pip's current directory. Set **Main File** to `Miku-main/aclclouds.py`. This small adapter changes to the project directory and delegates to the same `miku.bot.main` used by `python -m miku`. Add `DISCORD_BOT_TOKEN` and the required Lavalink values as private ACLClouds startup variables. Do not put credentials in either file.
+Miku reads settings at startup. Restart the Miku process after changing environment variables or deploying code. Restart Lavalink separately after changing its server configuration or plugin installation. In-memory playback queues are cleared when Miku restarts.
 
 ## Troubleshooting
 

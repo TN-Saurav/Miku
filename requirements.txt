@@ -1,5 +1,4 @@
-# Runtime dependency pins mirror pyproject.toml. Keep this file path-independent
-# because hosting panels may invoke pip from outside the repository directory.
+# Pinned runtime dependency list mirrored in pyproject.toml.
 discord.py[voice]==2.7.1
 wavelink==3.5.2
 aiohttp==3.11.18
