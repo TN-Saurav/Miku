@@ -49,6 +49,11 @@ class VoiceCommandParser:
                     query = query[:-6].strip()
                 if not query or query == "again":
                     return None
+                if prefix == "play " and re.fullmatch(
+                    r"(?:the )?(?:first|second|third|last|\d+(?:st|nd|rd|th)?) result",
+                    query,
+                ):
+                    return None
                 return VoiceCommand("search" if prefix == "search " else "play", query=query)
         return None
 

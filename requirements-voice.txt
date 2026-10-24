@@ -1,3 +1,1 @@
--r requirements.txt
-discord-ext-voice-recv==0.5.2a179
-vosk==0.3.45
+-e .[voice]

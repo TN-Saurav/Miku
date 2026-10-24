@@ -110,7 +110,13 @@ class Settings:
     @classmethod
     def from_env(cls, *, load_file: bool = True) -> "Settings":
         if load_file:
-            load_dotenv(dotenv_path=PROJECT_ENV_FILE)
+            env_file = PROJECT_ENV_FILE
+            if not env_file.is_file():
+                # An installed wheel lives under site-packages, so its source
+                # directory is not the user's project root. In that case use
+                # the working directory where deployment configuration lives.
+                env_file = Path.cwd() / ".env"
+            load_dotenv(dotenv_path=env_file)
         model_path = os.getenv("VOSK_MODEL_PATH", "").strip()
         return cls(
             discord_token=os.getenv("DISCORD_BOT_TOKEN", "").strip(),

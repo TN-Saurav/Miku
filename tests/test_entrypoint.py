@@ -1,7 +1,15 @@
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import miku.bot as bot_module
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_main_creates_one_client_and_runs_with_configured_token(monkeypatch):
@@ -33,3 +41,26 @@ def test_main_reports_invalid_configuration_without_creating_client(monkeypatch,
 
     assert "DISCORD_BOT_TOKEN is required" in caplog.text
     create_bot.assert_not_called()
+
+
+def test_python_module_entrypoint_reports_missing_config_without_logging_in(tmp_path):
+    shutil.copytree(PROJECT_ROOT / "miku", tmp_path / "miku")
+    env = {
+        key: os.environ[key]
+        for key in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP")
+        if key in os.environ
+    }
+
+    result = subprocess.run(
+        [sys.executable, "-m", "miku"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "DISCORD_BOT_TOKEN is required" in result.stderr
+    assert "Connecting to Discord" not in result.stderr

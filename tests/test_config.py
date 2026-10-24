@@ -44,6 +44,19 @@ def test_from_env_loads_numeric_guild_id_from_project_env(monkeypatch, tmp_path)
     assert settings.guild_id == 954723289907986442
 
 
+def test_from_env_falls_back_to_working_directory_for_installed_package(
+    monkeypatch, tmp_path,
+):
+    (tmp_path / ".env").write_text("DISCORD_GUILD_ID=123456789\n", encoding="utf-8")
+    monkeypatch.setattr(config, "PROJECT_ENV_FILE", tmp_path / "site-packages" / ".env")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("DISCORD_GUILD_ID", raising=False)
+
+    settings = config.Settings.from_env()
+
+    assert settings.guild_id == 123456789
+
+
 def test_jamendo_client_id_is_optional_and_loaded_from_environment(monkeypatch):
     monkeypatch.setenv("JAMENDO_CLIENT_ID", "test-client-id")
 
