@@ -28,14 +28,22 @@ Invite the bot with the `bot` and `applications.commands` scopes and the permiss
 
 ### Starting Lavalink and Miku
 
-Start Lavalink in one PowerShell window:
+From the repository root, start both with one command:
+
+```powershell
+.\.venv\Scripts\python.exe .\main.py
+```
+
+The launcher starts the local Lavalink JAR when `LAVALINK_URI` points to localhost and the port is not already open, waits for its port, then runs the existing `python -m miku` entry point. It leaves an already-running Lavalink process alone. If `LAVALINK_URI` points to a remote host, it starts Miku without launching a local server. Press Ctrl+C to stop Miku; a local Lavalink process started by the launcher is stopped with it.
+
+For manual two-window startup, start Lavalink in one PowerShell window:
 
 ```powershell
 Set-Location .\lavalink
 java -jar .\Lavalink.jar
 ```
 
-From the repository root, start Miku in another window:
+Then, in another PowerShell window from the repository root, start Miku with its package entry point:
 
 ```powershell
 .\.venv\Scripts\python.exe -m miku
@@ -56,7 +64,9 @@ python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-If `.env` is missing, copy `.env.example` to `.env` and set `DISCORD_BOT_TOKEN` and the Lavalink values. Do not overwrite an existing `.env`. Start Miku with `python -m miku`. Run your authorized Lavalink v4 server separately and point `LAVALINK_URI` at an address Miku can reach.
+If `.env` is missing, copy `.env.example` to `.env` and set `DISCORD_BOT_TOKEN` and the Lavalink values. Do not overwrite an existing `.env`. For a local server, start both processes with `python main.py`; for a remote server or bot-only startup, use `python -m miku`. Run an authorized Lavalink v4 server separately when using the remote endpoint and point `LAVALINK_URI` at an address Miku can reach.
+
+For a local Lavalink server, `python main.py` from the repository root starts Lavalink and then Miku in the same terminal. `python -m miku` remains the standard bot-only entry point.
 
 ## Commands
 
@@ -95,7 +105,7 @@ Tests mock Discord, Lavalink, and YouTube calls; they do not verify live Discord
 
 ## Deployment
 
-Install Python 3.10 or newer from the project root with `python -m pip install .`, or install the pinned runtime packages with `python -m pip install -r requirements.txt`. Keep the repository root as the process working directory and start Miku with `python -m miku`; after installing the package, the standard `miku` console command is also available. Configure secrets through the platform's environment-variable settings. Do not bake `.env`, `lavalink/application.yml`, JARs, or speech models into a public image. The Lavalink service must be reachable from the bot host.
+`pyproject.toml` defines package metadata, runtime dependencies, optional `dev` and `voice` extras, and the console entry point. `requirements.txt` mirrors the pinned runtime dependencies for platforms that require a requirements file. Install Python 3.10 or newer from the project root with `python -m pip install .`, or install those runtime packages with `python -m pip install -r requirements.txt`. Keep the repository root as the process working directory and start Miku with `python -m miku`; after installing the package, the standard `miku` console command is also available. Configure secrets through the platform's environment-variable settings. Do not bake `.env`, `lavalink/application.yml`, JARs, or speech models into a public image. The Lavalink service must be reachable from the bot host.
 
 Miku reads settings at startup. Restart the Miku process after changing environment variables or deploying code. Restart Lavalink separately after changing its server configuration or plugin installation. In-memory playback queues are cleared when Miku restarts.
 

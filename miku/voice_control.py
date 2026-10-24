@@ -47,7 +47,10 @@ class VoiceController:
         try:
             from discord.ext import voice_recv
         except Exception as exc:
-            raise RuntimeError("Install requirements-voice.txt to enable voice receiving.") from exc
+            raise RuntimeError(
+                'Install optional voice dependencies with `python -m pip install -e ".[voice]"` '
+                "from the project root."
+            ) from exc
 
         voice_client = guild.voice_client
         if voice_client is not None and not isinstance(voice_client, voice_recv.VoiceRecvClient):

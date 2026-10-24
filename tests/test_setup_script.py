@@ -49,7 +49,10 @@ def test_setup_preserves_existing_configs_and_avoids_duplicate_plugins():
 
 def test_gitignore_protects_secrets_artifacts_and_runtime_data():
     ignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
-    for pattern in (".env.*", "!.env.example", "*.jar", ".venv/", "logs/", "data/", "lavalink/application.yml"):
+    for pattern in (
+        ".env.*", "!.env.example", "*.jar", ".venv/", "__pycache__/",
+        ".pytest_cache/", "*.egg-info/", "logs/", "data/", "lavalink/application.yml",
+    ):
         assert pattern in ignore
 
 
@@ -80,14 +83,12 @@ def test_readme_uses_non_overwriting_windows_setup_steps():
     assert "C:\\Users\\saura" not in readme
 
 
-def test_runtime_and_development_dependencies_are_separated():
+def test_runtime_and_optional_dependencies_are_separated():
     runtime_requirements = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
-    dev_requirements = (PROJECT_ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
-    voice_requirements = (PROJECT_ROOT / "requirements-voice.txt").read_text(encoding="utf-8")
     pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
     assert "pytest" not in runtime_requirements
-    assert "-e .[dev]" in dev_requirements
-    assert "-e .[voice]" in voice_requirements
+    assert 'dev = [\n    "pytest==8.4.1",' in pyproject
+    assert 'voice = [\n    "discord-ext-voice-recv==' in pyproject
     assert 'miku = "miku.bot:main"' in pyproject
     assert "python -m miku" in (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")

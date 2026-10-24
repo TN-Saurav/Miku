@@ -28,3 +28,13 @@ def test_python_module_and_console_script_use_shared_startup_function():
     assert '[project.scripts]\nmiku = "miku.bot:main"' in pyproject
     assert "from .bot import main" in module_entrypoint
     assert "raise SystemExit(main())" in module_entrypoint
+
+
+def test_miku_is_the_only_python_source_package():
+    source_packages = sorted(
+        path.name
+        for path in PROJECT_ROOT.iterdir()
+        if path.is_dir() and (path / "__init__.py").is_file()
+    )
+
+    assert source_packages == ["miku"]
