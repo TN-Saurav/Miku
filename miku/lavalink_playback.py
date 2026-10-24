@@ -317,14 +317,20 @@ class YouTubePlaybackManager:
             return position
 
     async def _start_next_locked(self, state: LavalinkGuildState) -> None:
-        if state.queue.upcoming and (state.player is None or not state.player.connected):
+        if state.queue.upcoming and (
+            state.reconnect_required or state.player is None or not state.player.connected
+        ):
             await self._notify_failure(
                 state,
                 "Miku's Lavalink voice connection is unavailable. The remaining YouTube tracks are still queued; "
                 "request another track after the voice connection is restored to resume them.",
             )
             return
-        while state.player is not None and state.player.connected:
+        while (
+            state.player is not None
+            and state.player.connected
+            and not state.reconnect_required
+        ):
             item = await state.queue.start_next()
             if item is None:
                 state.started_token = None
@@ -466,6 +472,21 @@ class YouTubePlaybackManager:
                         "request another YouTube track to resume them.",
                     )
                 return
+            if reason == "REPLACED":
+                log.warning(
+                    "Lavalink replaced requested track %s in guild %s; advancing the Miku queue",
+                    current.track.stable_id, guild.id,
+                )
+                state.started_token = None
+                state.skip_token = None
+                await self._notify_failure(
+                    state,
+                    "Lavalink replaced the current YouTube track. Miku marked it Replaced and will continue the queue.",
+                )
+                await self._finish_player_message(state, "Replaced")
+                await state.queue.finish_current()
+                await self._start_next_locked(state)
+                return
             if reason != "FINISHED":
                 log.warning(
                     "Lavalink ended YouTube video %s in guild %s with reason %s",
@@ -475,11 +496,27 @@ class YouTubePlaybackManager:
             if completed:
                 await self._finish_player_message(state, "Finished")
             else:
-                await self._notify_failure(
-                    state,
-                    "Lavalink ended this YouTube track before confirming playback. It is marked Failed; "
-                    "Miku will continue with the next queued track.",
+                disconnected = (
+                    state.reconnect_required
+                    or state.player is None
+                    or not state.player.connected
                 )
+                if disconnected:
+                    notice = (
+                        "Miku's Lavalink voice connection ended before this song finished. The current track is "
+                        "marked Failed; remaining tracks stay queued for reconnection."
+                    )
+                elif state.started_token != current.token:
+                    notice = (
+                        "Lavalink ended this YouTube track before confirming playback. It is marked Failed; "
+                        "Miku will continue the queue."
+                    )
+                else:
+                    notice = (
+                        f"Lavalink ended this YouTube track with reason {safe_log_detail(raw_reason, limit=40)} "
+                        "instead of natural completion. It is marked Failed; Miku will continue the queue."
+                    )
+                await self._notify_failure(state, notice)
                 await self._finish_player_message(state, "Failed")
             state.started_token = None
             state.skip_token = None
@@ -704,10 +741,75 @@ class YouTubePlaybackManager:
             return shuffled
 
     async def _finish_player_message(self, state: LavalinkGuildState, status: str) -> None:
-        if state.display_message is None:
+        message = state.display_message
+        track = state.queue.current
+        title = discord.utils.escape_mentions(
+            discord.utils.escape_markdown(track.title if track else "Unknown track")
+        )[:900]
+        headings = {
+            "Finished": "🎵 Song Finished",
+            "Stopped": "⏹️ Playback Stopped",
+            "Skipped": "⏭️ Track Skipped",
+            "Failed": "⚠️ Track Failed",
+            "Replaced": "↪️ Track Replaced",
+        }
+        colors = {
+            "Finished": discord.Color.green(),
+            "Failed": discord.Color.red(),
+            "Stopped": discord.Color.dark_grey(),
+            "Skipped": discord.Color.dark_grey(),
+            "Replaced": discord.Color.orange(),
+        }
+        embed = discord.Embed(
+            title=headings.get(status, f"Track {status}"),
+            description=f"Track: **{title}**",
+            color=colors.get(status, discord.Color.blurple()),
+            url=(track.source_url if track and track.source_url and track.source_url.startswith("https://") else None),
+        )
+        if track and track.thumbnail_url and track.thumbnail_url.startswith("https://"):
+            embed.set_thumbnail(url=track.thumbnail_url)
+        embed.add_field(name="Status", value=status, inline=True)
+        embed.set_footer(text="Miku player · Track complete")
+        if message is None:
+            await self._send_final_status_fallback(state, embed)
             return
-        await self._update_player(state, status_override=status)
-        state.display_message = None
+        try:
+            # Passing view=None removes the persistent controls from the old card.
+            await message.edit(embed=embed, view=None)
+        except (discord.NotFound, discord.Forbidden):
+            # The old message cannot be cleaned up. A replacement status card is safe
+            # to send for these definitive API responses, and it has no controls.
+            await self._send_final_status_fallback(state, embed)
+        except (discord.HTTPException, AttributeError) as exc:
+            log.info(
+                "Could not finalize the Lavalink player message in guild %s (%s)",
+                state.guild.id if state.guild else "unknown", type(exc).__name__,
+            )
+        finally:
+            state.display_message = None
+
+    @staticmethod
+    async def _send_final_status_fallback(state: LavalinkGuildState, embed: discord.Embed) -> None:
+        if state.channel is None:
+            return
+        try:
+            await state.channel.send(embed=embed, view=None)
+        except (discord.HTTPException, AttributeError) as exc:
+            log.info(
+                "Could not post the fallback track status in guild %s (%s)",
+                state.guild.id if state.guild else "unknown", type(exc).__name__,
+            )
+
+    def is_current_player_message(self, guild_id: int, message: Any) -> bool:
+        state = self._states.get(guild_id)
+        active = state.display_message if state else None
+        if active is None or message is None:
+            return False
+        active_id = getattr(active, "id", None)
+        message_id = getattr(message, "id", None)
+        if active_id is not None or message_id is not None:
+            return active_id is not None and active_id == message_id
+        return active is message
 
     async def _update_player(
         self, state: LavalinkGuildState, *, status_override: str | None = None,
@@ -773,6 +875,12 @@ class YouTubePlaybackManager:
         denied = self.authorize_control(guild, interaction.user)
         if denied:
             await interaction.response.send_message(denied, ephemeral=True)
+            return
+        if not self.is_current_player_message(guild.id, getattr(interaction, "message", None)):
+            await interaction.response.send_message(
+                "These player controls have finished. Use the controls on the current player message.",
+                ephemeral=True,
+            )
             return
         actions = {"previous": self.previous, "pause": self.pause, "resume": self.resume,
                    "skip": self.skip, "stop": self.stop}
@@ -1156,6 +1264,14 @@ class HybridPlaybackManager:
     async def handle_player_interaction(self, interaction: discord.Interaction, action: str) -> None:
         if interaction.guild is None:
             await self.native.handle_player_interaction(interaction, action)
+            return
+        if not self.youtube.is_current_player_message(
+            interaction.guild.id, getattr(interaction, "message", None)
+        ):
+            await interaction.response.send_message(
+                "These player controls have finished. Use the controls on the current player message.",
+                ephemeral=True,
+            )
             return
         if action == "queue":
             current, upcoming = await self.queue_snapshot(interaction.guild.id)

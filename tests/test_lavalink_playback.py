@@ -80,20 +80,30 @@ class FakePlayer:
 class FakeChannel:
     def __init__(self):
         self.sent = []
+        self.send_error = None
 
     async def send(self, content=None, *, embed=None, view=None):
-        message = FakeMessage(embed)
+        if self.send_error is not None:
+            raise self.send_error
+        message = FakeMessage(embed, view)
         self.sent.append((content, embed, view, message))
         return message
 
 
 class FakeMessage:
-    def __init__(self, embed):
+    def __init__(self, embed, view=None):
+        self.id = id(self)
         self.embed = embed
+        self.view = view
+        self.edit_error = None
 
     async def edit(self, **kwargs):
+        if self.edit_error is not None:
+            raise self.edit_error
         if "embed" in kwargs:
             self.embed = kwargs["embed"]
+        if "view" in kwargs:
+            self.view = kwargs["view"]
 
 
 def _message_status(message):
@@ -346,7 +356,11 @@ async def test_track_end_advances_once_and_loop_track_restarts_same_item(tmp_pat
     second_message = state.display_message
     assert first_message is not second_message
     assert _message_status(first_message) == "Finished"
+    assert first_message.embed.title == "🎵 Song Finished"
+    assert first_message.embed.description == "Track: **First**"
+    assert first_message.view is None
     assert channel.sent[1][3] is second_message
+    assert second_message.view is not None
     await manager.on_track_end(payload)
     assert (await manager.queue_for(guild.id).snapshot()) == (second, ())
     assert state.player.played == [first_audio, second_audio]
@@ -366,6 +380,8 @@ async def test_track_end_advances_once_and_loop_track_restarts_same_item(tmp_pat
     assert (await manager.queue_for(guild.id).snapshot()) == (second, ())
     assert manager._payload_token(state.queue.current_item.playable) != old_token
     assert _message_status(second_ended_message) == "Finished"
+    assert second_ended_message.view is None
+    assert second_ended_message.embed.title == "🎵 Song Finished"
     assert state.display_message is not second_ended_message
     assert len(channel.sent) == 3
 
@@ -389,6 +405,7 @@ async def test_unstarted_track_end_is_failed_and_empty_queue_stays_empty(tmp_pat
 
     assert (await state.queue.snapshot()) == (None, ())
     assert _message_status(message) == "Failed"
+    assert message.view is None
     assert state.display_message is None
     assert len(channel.sent) == 2  # One player card and one failure notice.
 
@@ -424,6 +441,7 @@ async def test_skip_finishes_previous_message_and_posts_next_track_message(tmp_p
     ))
 
     assert _message_status(first_message) == "Skipped"
+    assert first_message.view is None
     assert state.display_message is channel.sent[1][3]
     assert state.display_message is not first_message
     assert _message_status(state.display_message) == "Loading"
@@ -456,6 +474,7 @@ async def test_stop_marks_current_message_stopped_without_creating_an_idle_dupli
     await manager.stop(guild)
 
     assert _message_status(current_message) == "Stopped"
+    assert current_message.view is None
     assert state.display_message is None
     assert await manager.queue_for(guild.id).snapshot() == (None, ())
     assert len(channel.sent) == 1
@@ -466,6 +485,248 @@ async def test_stop_marks_current_message_stopped_without_creating_an_idle_dupli
     ))
     assert state.display_message is None
     assert len(channel.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_natural_finish_with_empty_queue_leaves_only_clean_finished_message(tmp_path):
+    manager = YouTubePlaybackManager(SimpleNamespace(), _settings(tmp_path))
+    guild = SimpleNamespace(id=203)
+    channel = FakeChannel()
+    state = manager.state_for(guild.id)
+    state.guild = guild
+    state.channel = channel
+    state.player = FakePlayer(guild)
+    track = Track("youtube", "AbCdEfGhI_1", "Last Song", "Uploader", 90)
+    audio = _playable(track.stable_id, track.title)
+    await manager.enqueue(guild, track, channel, PlayableSource("lavalink", audio))
+    message = state.display_message
+    event_track = SimpleNamespace(identifier=audio.identifier, extras=dict(audio.extras))
+
+    await manager.on_track_start(SimpleNamespace(
+        player=state.player, track=event_track, original=event_track,
+    ))
+    ended = SimpleNamespace(player=state.player, track=event_track, reason="FINISHED")
+    await manager.on_track_end(ended)
+    await manager.on_track_end(ended)
+
+    assert await state.queue.snapshot() == (None, ())
+    assert _message_status(message) == "Finished"
+    assert message.embed.title == "🎵 Song Finished"
+    assert message.view is None
+    assert state.display_message is None
+    assert len(channel.sent) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "error_type"),
+    ((404, discord.NotFound), (403, discord.Forbidden)),
+)
+async def test_deleted_or_uneditable_finished_message_gets_one_clean_fallback(
+    tmp_path, status, error_type,
+):
+    manager = YouTubePlaybackManager(SimpleNamespace(), _settings(tmp_path))
+    guild = SimpleNamespace(id=204)
+    channel = FakeChannel()
+    state = manager.state_for(guild.id)
+    state.guild = guild
+    state.channel = channel
+    state.player = FakePlayer(guild)
+    track = Track("youtube", "AbCdEfGhI_1", "Last Song", "Uploader", 90)
+    audio = _playable(track.stable_id, track.title)
+    await manager.enqueue(guild, track, channel, PlayableSource("lavalink", audio))
+    original_message = state.display_message
+    original_message.edit_error = error_type(
+        SimpleNamespace(status=status, reason="Not Found" if status == 404 else "Forbidden"),
+        "message cannot be edited",
+    )
+    event_track = SimpleNamespace(identifier=audio.identifier, extras=dict(audio.extras))
+    await manager.on_track_start(SimpleNamespace(
+        player=state.player, track=event_track, original=event_track,
+    ))
+    ended = SimpleNamespace(player=state.player, track=event_track, reason="FINISHED")
+
+    await manager.on_track_end(ended)
+    await manager.on_track_end(ended)
+
+    assert len(channel.sent) == 2
+    fallback = channel.sent[-1][3]
+    assert fallback.embed.title == "🎵 Song Finished"
+    assert fallback.view is None
+    assert state.display_message is None
+
+
+@pytest.mark.asyncio
+async def test_final_status_handles_missing_send_permissions_without_callback_error(tmp_path):
+    manager = YouTubePlaybackManager(SimpleNamespace(), _settings(tmp_path))
+    guild = SimpleNamespace(id=209)
+    channel = FakeChannel()
+    state = manager.state_for(guild.id)
+    state.guild = guild
+    state.channel = channel
+    state.player = FakePlayer(guild)
+    track = Track("youtube", "AbCdEfGhI_1", "Last Song", "Uploader", 90)
+    audio = _playable(track.stable_id, track.title)
+    await manager.enqueue(guild, track, channel, PlayableSource("lavalink", audio))
+    message = state.display_message
+    event_track = SimpleNamespace(identifier=audio.identifier, extras=dict(audio.extras))
+    await manager.on_track_start(SimpleNamespace(
+        player=state.player, track=event_track, original=event_track,
+    ))
+    message.edit_error = discord.Forbidden(
+        SimpleNamespace(status=403, reason="Forbidden"), "cannot edit",
+    )
+    channel.send_error = discord.Forbidden(
+        SimpleNamespace(status=403, reason="Forbidden"), "cannot send",
+    )
+
+    await manager.on_track_end(SimpleNamespace(
+        player=state.player, track=event_track, reason="FINISHED",
+    ))
+
+    assert (await state.queue.snapshot()) == (None, ())
+    assert state.display_message is None
+    assert message.view is not None  # Discord rejected removal; stale-control checks still block clicks.
+    assert len(channel.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_replaced_track_is_not_reported_finished_and_queue_continues(tmp_path):
+    manager = YouTubePlaybackManager(SimpleNamespace(), _settings(tmp_path))
+    guild = SimpleNamespace(id=205)
+    channel = FakeChannel()
+    state = manager.state_for(guild.id)
+    state.guild = guild
+    state.channel = channel
+    state.player = FakePlayer(guild)
+    first = Track("youtube", "AbCdEfGhI_1", "First", "Uploader", 90)
+    second = Track("youtube", "ZyXwVuTsRq0", "Second", "Uploader", 95)
+    first_audio = _playable(first.stable_id, first.title)
+    second_audio = _playable(second.stable_id, second.title)
+    await manager.enqueue(guild, first, channel, PlayableSource("lavalink", first_audio))
+    first_message = state.display_message
+    await manager.enqueue(guild, second, channel, PlayableSource("lavalink", second_audio))
+    ended = SimpleNamespace(
+        player=state.player,
+        track=SimpleNamespace(identifier=first_audio.identifier, extras=dict(first_audio.extras)),
+        reason="REPLACED",
+    )
+
+    await manager.on_track_end(ended)
+    await manager.on_track_end(ended)
+
+    assert _message_status(first_message) == "Replaced"
+    assert first_message.view is None
+    assert first_message.embed.title == "↪️ Track Replaced"
+    assert (await state.queue.snapshot()) == (second, ())
+    assert state.player.played == [first_audio, second_audio]
+    assert state.display_message.view is not None
+    assert len(channel.sent) == 3  # two player cards and one replacement notice
+
+
+@pytest.mark.asyncio
+async def test_unrequested_stopped_event_is_not_reported_finished_or_skipped(tmp_path):
+    manager = YouTubePlaybackManager(SimpleNamespace(), _settings(tmp_path))
+    guild = SimpleNamespace(id=207)
+    channel = FakeChannel()
+    state = manager.state_for(guild.id)
+    state.guild = guild
+    state.channel = channel
+    state.player = FakePlayer(guild)
+    current = Track("youtube", "AbCdEfGhI_1", "Current", "Uploader", 90)
+    following = Track("youtube", "ZyXwVuTsRq0", "Following", "Uploader", 95)
+    current_audio = _playable(current.stable_id, current.title)
+    following_audio = _playable(following.stable_id, following.title)
+    await manager.enqueue(guild, current, channel, PlayableSource("lavalink", current_audio))
+    current_message = state.display_message
+    await manager.enqueue(guild, following, channel, PlayableSource("lavalink", following_audio))
+    event_track = SimpleNamespace(
+        identifier=current_audio.identifier,
+        extras=dict(state.queue.current_item.playable.extras),
+    )
+
+    await manager.on_track_end(SimpleNamespace(
+        player=state.player, track=event_track, reason="STOPPED",
+    ))
+
+    assert _message_status(current_message) == "Stopped"
+    assert current_message.embed.title == "⏹️ Playback Stopped"
+    assert current_message.view is None
+    assert await state.queue.snapshot() == (None, (following,))
+    assert state.player.played == [current_audio]
+    assert state.display_message is None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_after_voice_disconnect_does_not_start_next_track(tmp_path):
+    manager = YouTubePlaybackManager(SimpleNamespace(), _settings(tmp_path))
+    guild = SimpleNamespace(id=208)
+    channel = FakeChannel()
+    state = manager.state_for(guild.id)
+    state.guild = guild
+    state.channel = channel
+    state.player = FakePlayer(guild)
+    current = Track("youtube", "AbCdEfGhI_1", "Interrupted", "Uploader", 90)
+    following = Track("youtube", "ZyXwVuTsRq0", "Preserved", "Uploader", 95)
+    current_audio = _playable(current.stable_id, current.title)
+    following_audio = _playable(following.stable_id, following.title)
+    await manager.enqueue(guild, current, channel, PlayableSource("lavalink", current_audio))
+    current_message = state.display_message
+    await manager.enqueue(guild, following, channel, PlayableSource("lavalink", following_audio))
+    event_track = SimpleNamespace(
+        identifier=current_audio.identifier,
+        extras=dict(state.queue.current_item.playable.extras),
+    )
+    await manager.on_track_start(SimpleNamespace(
+        player=state.player, track=event_track, original=event_track,
+    ))
+    await manager.on_websocket_closed(SimpleNamespace(
+        player=state.player, code=1000, by_remote=False, reason="voice connection ended",
+    ))
+    ended = SimpleNamespace(player=state.player, track=event_track, reason="CLEANUP")
+
+    await manager.on_track_end(ended)
+    await manager.on_track_end(ended)
+
+    assert _message_status(current_message) == "Failed"
+    assert current_message.embed.title == "⚠️ Track Failed"
+    assert current_message.view is None
+    assert await state.queue.snapshot() == (None, (following,))
+    assert state.player.played == [current_audio]
+    assert state.reconnect_required is True
+    assert state.display_message is None
+    assert sum("voice connection ended" in text for text in _channel_sent_content(channel)) == 1
+
+
+@pytest.mark.asyncio
+async def test_old_player_controls_cannot_operate_after_track_finishes(tmp_path):
+    manager = YouTubePlaybackManager(SimpleNamespace(), _settings(tmp_path))
+    hybrid = HybridPlaybackManager(SimpleNamespace(), manager, SimpleNamespace())
+    guild = SimpleNamespace(id=206)
+    state = manager.state_for(guild.id)
+    state.display_message = FakeMessage(discord.Embed(title="Current player"), view=object())
+    old_message = FakeMessage(discord.Embed(title="🎵 Song Finished"))
+
+    class Response:
+        def __init__(self):
+            self.sent = []
+
+        async def send_message(self, content, *, ephemeral=False):
+            self.sent.append((content, ephemeral))
+
+    response = Response()
+    interaction = SimpleNamespace(
+        guild=guild,
+        message=old_message,
+        user=SimpleNamespace(id=1),
+        response=response,
+    )
+
+    await hybrid.handle_player_interaction(interaction, "queue")
+
+    assert len(response.sent) == 1
+    assert "controls have finished" in response.sent[0][0]
+    assert response.sent[0][1] is True
 
 
 @pytest.mark.asyncio
